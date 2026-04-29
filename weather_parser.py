@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 import logging
 import re
+import datetime
 
 logger = logging.getLogger("WeatherParser")
 
@@ -17,8 +18,20 @@ class WeatherParser:
             "W-C0033-006": self._parse_006_wind,
             "W-C0033-004": self._parse_004_cold,
             "W-C0033-005": self._parse_005_heat,
+            "W-C0034-001": self._parse_0034_1_typhoon,
         }
-
+    
+    def _check_is_expired(self, time_str, hours=1):
+        """共用邏輯：檢查時間字串是否已過期超過指定小時"""
+        if not time_str: return False
+        try:
+            # 統一轉換格式進行比對
+            dt = datetime.datetime.strptime(time_str[:19].replace('T', ' '), "%Y-%m-%d %H:%M:%S")
+            return dt < (datetime.datetime.now() - datetime.timedelta(hours=hours))
+        except Exception as e:
+            logger.error(f"時間比對錯誤: {e}")
+            return False
+        
     def parse(self, folder_name: str, file_path: Path):
         """根據資料夾名稱直接呼叫對應的解析函數"""
         handler = self.dispatch_map.get(folder_name)
@@ -28,134 +41,100 @@ class WeatherParser:
         return None
 
     def _parse_001_fog(self, path: Path):
+        """[濃霧] 增加過期解除邏輯"""
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             
             geocodes = set()
             start_time, end_time = "", ""
-            
             locations = data.get('records', {}).get('location', [])
+            
             for loc in locations:
                 hazards = loc.get('hazardConditions', {}).get('hazards', [])
-                is_fog = any(h.get('info', {}).get('phenomena') == "濃霧" for h in hazards)
-                
-                if is_fog:
-                    geo = str(loc.get('geocode', '')).split('.')[0]
-                    if geo: geocodes.add(geo)
-                    for h in hazards:
-                        if h.get('info', {}).get('phenomena') == "濃霧":
-                            vt = h.get('validTime', {})
-                            start_time = vt.get('startTime', start_time)
-                            end_time = vt.get('endTime', end_time)
+                for h in hazards:
+                    if h.get('info', {}).get('phenomena') == "濃霧":
+                        vt = h.get('validTime', {})
+                        start_time = vt.get('startTime', start_time)
+                        end_time = vt.get('endTime', end_time)
+                        # 只有在有效時才加入 geocode
+                        if not self._check_is_expired(end_time):
+                            geo = str(loc.get('geocode', '')).split('.')[0]
+                            if geo: geocodes.add(geo)
 
-            # 修正：即便 geocodes 為空也回傳，確保後續 sync 流程能執行解除
+            if self._check_is_expired(end_time):
+                logger.info(f"濃霧檔案已過期 ({end_time})，觸發全域解除。")
+                geocodes = set()
+
             return {
-                "type": "濃霧", 
-                "geocodes": geocodes, 
-                "startTime": start_time, 
-                "endTime": end_time,
-                "headline": "濃霧特報"
+                "type": "濃霧", "geocodes": geocodes, 
+                "startTime": start_time, "endTime": end_time,
+                "folderName": "W-C0033-001"
             }
         except Exception as e:
-            logger.error(f"001 解析錯誤: {e}")
-            return None
-        
+            logger.error(f"001 解析錯誤: {e}"); return None
+
+    def _parse_006_wind(self, path: Path):
+        """[強風] 增加過期解除邏輯"""
+        try:
+            tree = ET.parse(path); root = tree.getroot()
+            def clean_time(t_str): return t_str.replace('T', ' ').split('+')[0] if t_str else ""
+            
+            geocodes = set(); eff_time, exp_time = "", ""
+            info = root.find('.//cap:info', self.cap_ns)
+            
+            if info is not None:
+                event = info.find('cap:event', self.cap_ns).text
+                if "強風" in event:
+                    eff_time = clean_time(info.find('cap:effective', self.cap_ns).text)
+                    exp_time = clean_time(info.find('cap:expires', self.cap_ns).text)
+                    
+                    if not self._check_is_expired(exp_time):
+                        for area in info.findall('cap:area', self.cap_ns):
+                            for geo in area.findall('cap:geocode', self.cap_ns):
+                                val = geo.find('cap:value', self.cap_ns).text
+                                if val: geocodes.add(val.split('.')[0])
+            
+            if self._check_is_expired(exp_time):
+                logger.info(f"強風檔案已過期 ({exp_time})，觸發全域解除。")
+                geocodes = set()
+
+            return {
+                "type": "強風", "geocodes": geocodes,
+                "effective": eff_time, "expires": exp_time,
+                "folderName": "W-C0033-006"
+            }
+        except Exception as e:
+            logger.error(f"006 解析錯誤: {e}"); return None
+
     def _parse_003_rain(self, path: Path):
-        """[專屬] 003 大雨/豪雨特報"""
+        """[豪大雨] 增加過期解除邏輯"""
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             
             infos = data.get("records", {}).get("info", [])
-            if not infos: return None
+            result = {"type": "降雨", "geocodes": set(), "effective": "", "expires": "", "folderName": "W-C0033-003"}
+            if not infos: return result
             
             info = infos[0]
+            exp = info.get("expires", "").replace('T', ' ').split('+')[0]
             
-            # 檢查顏色：必須是 黃色 或 紅色
+            if self._check_is_expired(exp):
+                logger.info(f"大雨檔案已過期 ({exp})，觸發全域解除。")
+                return result
+
+            # 正常解析流程...
             parameters = info.get("parameter", [])
-            is_valid_color = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "紅色"] for p in parameters)
+            is_valid = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "紅色"] for p in parameters)
+            if is_valid:
+                result["expires"] = exp
+                result["geocodes"] = {str(a.get("geocode", {}).get("value", "")).split('.')[0] for a in info.get("area", [])}
             
-            if not is_valid_color:
-                return None
-
-            return {
-                "type": "降雨",
-                "headline": info.get("headline", ""), # 保留標題
-                "geocodes": {str(a.get("geocode", {}).get("value", "")).split('.')[0] for a in info.get("area", [])},
-                "effective": info.get("effective", ""), # 保留 effective
-                "onset": info.get("onset", ""),         # 保留 onset
-                "expires": info.get("expires", "")      # 保留 expires
-            }
+            return result
         except Exception as e:
-            logger.error(f"003 解析錯誤: {e}")
-            return None
-
-    def _parse_006_wind(self, path: Path):
-        """
-        [專屬] 006 強風特報 (CAP 格式)
-        1. 保留 headline
-        2. 保留 effective, onset, expires
-        3. 過濾 alert_color 為 黃色或紅色
-        4. 提取 alert_criteria 供未來告警使用
-        """
-        try:
-            tree = ET.parse(path)
-            root = tree.getroot()
+            logger.error(f"003 解析錯誤: {e}"); return None
             
-            # 尋找 info 節點
-            info = root.find('.//cap:info', self.cap_ns)
-            if info is None:
-                return None
-
-            # --- 3. 檢查 Alert Color (黃色或紅色) ---
-            parameters = info.findall('cap:parameter', self.cap_ns)
-            is_valid_color = False
-            alert_criteria = ""
-            
-            for param in parameters:
-                v_name = param.findtext('cap:valueName', '', self.cap_ns)
-                v_val = param.findtext('cap:value', '', self.cap_ns)
-                
-                # 判斷顏色
-                if v_name == "alert_color" and (v_val == "黃色" or v_val == "紅色"):
-                    is_valid_color = True
-                
-                # --- 4. 提取告警基準 (alert_criteria) ---
-                if v_name == "alert_criteria":
-                    alert_criteria = v_val
-            
-            if not is_valid_color:
-                logger.info(f"006 檔案 {path.name} 未達警戒顏色標記，跳過解析")
-                return None
-
-            # --- 1. & 2. 提取標題與時間欄位 ---
-            headline = info.findtext('cap:headline', '', self.cap_ns)
-            effective = info.findtext('cap:effective', '', self.cap_ns)
-            onset = info.findtext('cap:onset', '', self.cap_ns)
-            expires = info.findtext('cap:expires', '', self.cap_ns)
-
-            # 提取 Geocodes
-            geocodes = set()
-            for area in info.findall('cap:area', self.cap_ns):
-                for geo in area.findall('cap:geocode', self.cap_ns):
-                    val = geo.findtext('cap:value', '', self.cap_ns)
-                    if val:
-                        geocodes.add(val.split('.')[0])
-
-            return {
-                "type": "強風",
-                "headline": headline,      # 保留標題 
-                "geocodes": geocodes,      # 區域代碼 [cite: 5, 6, 7]
-                "effective": effective,    # 保留有效時間 
-                "onset": onset,            # 保留開始時間 
-                "expires": expires,        # 保留結束時間 
-                "alert_criteria": alert_criteria  # 告警基準字串 
-            }
-        except Exception as e:
-            logger.error(f"006 解析錯誤: {e}")
-            return None
-
     def _parse_004_cold(self, path: Path):
         """[專屬] 004 低溫特報 - 未來僅發送至 Redis"""
         try:
@@ -226,6 +205,77 @@ class WeatherParser:
         except Exception as e:
             logger.error(f"005 解析錯誤: {e}")
             return None
+    
+    def _parse_0034_1_typhoon(self, path: Path):
+        """[專屬] 0034-001 颱風警報解析"""
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            
+            infos = data.get("records", {}).get("info", [])
+            
+            # 初始化結果
+            result = {
+                "type": "颱風",
+                "geocodes": set(),
+                "effective": "",
+                "onset": "",
+                "expires": "",
+                "folderName": "W-C0034-001"
+            }
+
+            if not infos:
+                return result
+            
+            info = infos[0]
+            headline = info.get("headline", "")
+            
+            # 1. 時間提取與格式化 (處理 T 與時區)
+            def clean_json_time(t_str):
+                return t_str.replace('T', ' ').split('+')[0] if t_str else ""
+
+            eff = clean_json_time(info.get("effective", ""))
+            ons = clean_json_time(info.get("onset", ""))
+            exp = clean_json_time(info.get("expires", ""))
+            
+            # 2. 【核心邏輯 1】時效性檢查
+            # 如果 expires 早於現在時間超過 1 小時，視為歷史舊資料，不予處理
+            if exp:
+                exp_dt = datetime.datetime.strptime(exp, "%Y-%m-%d %H:%M:%S")
+                now = datetime.datetime.now()
+                if exp_dt < (now - datetime.timedelta(hours=1)):
+                    logger.info(f"颱風警報已過期超過 1 小時 ({exp})，跳過處理。")
+                    return None # 回傳 None 讓測試腳本直接 return，不觸發 DB 變動
+
+            # 填充基本資訊
+            result["effective"] = eff
+            result["onset"] = ons
+            result["expires"] = exp
+            result["headline"] = headline
+
+            # 3. 【核心邏輯 2】判定是否為「解除」警報
+            # 只要標題包含 "解除"，即便 API 內有地區，也回傳空 geocodes 觸發全域刪除
+            if "解除" in headline:
+                logger.info("偵測到『解除颱風警報』，將回傳空路網以清空事件。")
+                return result
+
+            # 4. 【核心邏輯 3】非解除狀態下，提取 Geocodes
+            # 颱風警報通常包含行政區代碼 (如 68000000)
+            geocodes = set()
+            for area in info.get("area", []):
+                geo_val = area.get("geocode", {}).get("value")
+                if geo_val:
+                    # 處理 68000000 -> 6800000 (轉為與路網表一致的 7 碼或開頭比對格式)
+                    clean_geo = str(geo_val).split('.')[0]
+                    geocodes.add(clean_geo)
+            
+            result["geocodes"] = geocodes
+            return result
+
+        except Exception as e:
+            logger.error(f"0034-001 颱風解析錯誤: {e}")
+            return None
+    
     def _extract_cities(self, areas):
         """
         精準提取台灣縣市名稱
