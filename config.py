@@ -8,8 +8,20 @@ SOURCE_FOLDER = BASE_DIR / "source"
 
 # --- 目標監控資料夾清單 ---
 # 將 target_folders 定義在此，方便管理
-TARGET_FOLDERS = ["W-C0033-001", "W-C0033-003", "W-C0033-006", "W-C0033-004", "W-C0033-005", "W-C0034-001"]
+TARGET_FOLDERS = ["W-C0033-001", "W-C0033-003", "W-C0033-006", "W-C0034-001"]
+# TARGET_FOLDERS = ["W-C0033-001", "W-C0033-003", "W-C0033-006", "W-C0033-004", "W-C0033-005", "W-C0034-001"]
+# --- RabbitMQ 連線配置 ---
+MQ_CONFIG = {
+    "host": "192.168.2.106",
+    "port": 5672,
+    "user": "freeway",
+    "password": "sochamp999",
+    "virtual_host": "/freeway",
+    "exchange": "tcss.AprOpPt",
+}
 
+# 修改原本的 TARGET_FOLDERS，僅保留您要測試的四種類型
+TEST_FOLDERS = ["W-C0033-001", "W-C0033-003", "W-C0033-006", "W-C0034-001"]
 # --- 災害類別與 TCSS 代碼對照 ---
 INCIDENT_TYPE_MAP = {
     "W-C0033-001": 80,  # 濃霧

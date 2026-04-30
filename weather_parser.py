@@ -41,13 +41,13 @@ class WeatherParser:
         return None
 
     def _parse_001_fog(self, path: Path):
-        """[濃霧] 增加過期解除邏輯"""
+        """[濃霧] 修正欄位名稱以符合整合格式"""
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             
             geocodes = set()
-            start_time, end_time = "", ""
+            eff_time, exp_time = "", ""
             locations = data.get('records', {}).get('location', [])
             
             for loc in locations:
@@ -55,85 +55,109 @@ class WeatherParser:
                 for h in hazards:
                     if h.get('info', {}).get('phenomena') == "濃霧":
                         vt = h.get('validTime', {})
-                        start_time = vt.get('startTime', start_time)
-                        end_time = vt.get('endTime', end_time)
-                        # 只有在有效時才加入 geocode
-                        if not self._check_is_expired(end_time):
+                        # 統一格式化時間
+                        eff_time = vt.get('startTime', "").replace('T', ' ').split('+')[0]
+                        exp_time = vt.get('endTime', "").replace('T', ' ').split('+')[0]
+                        if not self._check_is_expired(exp_time):
                             geo = str(loc.get('geocode', '')).split('.')[0]
                             if geo: geocodes.add(geo)
 
-            if self._check_is_expired(end_time):
-                logger.info(f"濃霧檔案已過期 ({end_time})，觸發全域解除。")
-                geocodes = set()
-
             return {
                 "type": "濃霧", "geocodes": geocodes, 
-                "startTime": start_time, "endTime": end_time,
+                "effective": eff_time, "expires": exp_time,
                 "folderName": "W-C0033-001"
             }
         except Exception as e:
             logger.error(f"001 解析錯誤: {e}"); return None
 
     def _parse_006_wind(self, path: Path):
-        """[強風] 增加過期解除邏輯"""
+        """[強風] 支援解除判定"""
         try:
-            tree = ET.parse(path); root = tree.getroot()
+            tree = ET.parse(path)
+            root = tree.getroot()
             def clean_time(t_str): return t_str.replace('T', ' ').split('+')[0] if t_str else ""
             
-            geocodes = set(); eff_time, exp_time = "", ""
+            geocodes = set()
+            eff_time, exp_time = "", ""
             info = root.find('.//cap:info', self.cap_ns)
             
             if info is not None:
-                event = info.find('cap:event', self.cap_ns).text
+                event = info.find('cap:event', self.cap_ns).text or ""
+                headline = info.find('cap:headline', self.cap_ns).text or ""
+                eff_time = clean_time(info.find('cap:effective', self.cap_ns).text)
+                exp_time = clean_time(info.find('cap:expires', self.cap_ns).text)
+
+                # 判定解除
+                if "解除" in headline or "解除" in event:
+                    logger.info(f"偵測到強風解除標題: {headline}")
+                    return {
+                        "type": "強風", "geocodes": set(), 
+                        "effective": eff_time, "expires": exp_time,
+                        "folderName": "W-C0033-006"
+                    }
+
                 if "強風" in event:
-                    eff_time = clean_time(info.find('cap:effective', self.cap_ns).text)
-                    exp_time = clean_time(info.find('cap:expires', self.cap_ns).text)
-                    
                     if not self._check_is_expired(exp_time):
                         for area in info.findall('cap:area', self.cap_ns):
                             for geo in area.findall('cap:geocode', self.cap_ns):
                                 val = geo.find('cap:value', self.cap_ns).text
                                 if val: geocodes.add(val.split('.')[0])
-            
-            if self._check_is_expired(exp_time):
-                logger.info(f"強風檔案已過期 ({exp_time})，觸發全域解除。")
-                geocodes = set()
+                    
+                    if self._check_is_expired(exp_time):
+                        logger.info(f"強風檔案已過期 ({exp_time})")
+                        geocodes = set()
 
-            return {
-                "type": "強風", "geocodes": geocodes,
-                "effective": eff_time, "expires": exp_time,
-                "folderName": "W-C0033-006"
-            }
+                    return {
+                        "type": "強風", "geocodes": geocodes,
+                        "effective": eff_time, "expires": exp_time,
+                        "folderName": "W-C0033-006"
+                    }
+            return None
         except Exception as e:
             logger.error(f"006 解析錯誤: {e}"); return None
-
-    def _parse_003_rain(self, path: Path):
-        """[豪大雨] 增加過期解除邏輯"""
+            
+    def _parse_003_rain(self, path: Path):    
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             
             infos = data.get("records", {}).get("info", [])
+            # 初始化預設結果：回傳空的 geocodes 會觸發全域解除
             result = {"type": "降雨", "geocodes": set(), "effective": "", "expires": "", "folderName": "W-C0033-003"}
-            if not infos: return result
             
+            if not infos: 
+                return None # 完全無資料則忽略
+                
             info = infos[0]
-            exp = info.get("expires", "").replace('T', ' ').split('+')[0]
-            
-            if self._check_is_expired(exp):
-                logger.info(f"大雨檔案已過期 ({exp})，觸發全域解除。")
-                return result
-
-            # 正常解析流程...
+            headline = info.get("headline", "")
             parameters = info.get("parameter", [])
-            is_valid = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "紅色"] for p in parameters)
-            if is_valid:
+            exp = info.get("expires", "").replace('T', ' ').split('+')[0]
+            eff = info.get("effective", "").replace('T', ' ').split('+')[0]
+
+            # 邏輯 1：檢查是否為「解除」標題 (對應情境 A)
+            if "解除" in headline:
+                logger.info(f"偵測到大雨解除標題: {headline}，準備清空所有大雨事件。")
+                result["effective"] = eff # 使用解除檔案的時間作為 ID 產生依據
+                result["expires"] = exp
+                return result # 回傳空 geocodes 以觸發 AlertSyncEngine 的解除機制
+
+            # 邏輯 2：檢查是否有 alert_color (對應情境 C)
+            is_valid_color = any(p.get("valueName") == "alert_color" and 
+                                p.get("value") in ["黃色", "橙色", "紅色"] for p in parameters)
+            
+            if is_valid_color:
+                result["effective"] = eff
                 result["expires"] = exp
                 result["geocodes"] = {str(a.get("geocode", {}).get("value", "")).split('.')[0] for a in info.get("area", [])}
-            
-            return result
+                return result
+
+            # 邏輯 3：既非解除也無有效顏色 (對應情境 B)
+            logger.info(f"大雨檔案不含有效顏色且非解除狀態，忽略處理。")
+            return None
+
         except Exception as e:
-            logger.error(f"003 解析錯誤: {e}"); return None
+            logger.error(f"003 解析錯誤: {e}")
+            return None
             
     def _parse_004_cold(self, path: Path):
         """[專屬] 004 低溫特報 - 未來僅發送至 Redis"""
