@@ -11,6 +11,13 @@ class WeatherParser:
     def __init__(self):
         self.cap_ns = {'cap': 'urn:oasis:names:tc:emergency:cap:1.2'}
         
+        # 臺灣完整 22 縣市清單 (用於精準比對)
+        self.taiwan_cities = [
+            "基隆市", "臺北市", "新北市", "桃園市", "新竹市", "新竹縣", "苗栗縣", 
+            "臺中市", "彰化縣", "南投縣", "雲林縣", "嘉義市", "嘉義縣", "臺南市", 
+            "高雄市", "屏東縣", "宜蘭縣", "花蓮縣", "臺東縣", "澎湖縣", "金門縣", "連江縣"
+        ]
+        
         # 建立資料夾與解析函數的對照表
         self.dispatch_map = {
             "W-C0033-001": self._parse_001_fog,
@@ -159,75 +166,109 @@ class WeatherParser:
             logger.error(f"003 解析錯誤: {e}")
             return None
             
-    def _parse_004_cold(self, path: Path):
-        """[專屬] 004 低溫特報 - 未來僅發送至 Redis"""
+    def _parse_004_cold(self, data):
+        """
+        解析低溫特報 (W-C0033-004)
+        邏輯：遍歷 info，尋找 alert_color 為 橙色 或 紅色 的區塊，並合併縣市。
+        """
         try:
-            with open(path, 'r', encoding='utf-8-sig') as f:
-                data = json.load(f)
-            
-            infos = data.get("records", {}).get("info", [])
-            for info in infos:
-                # 1. 標題判斷
-                if "低溫" not in info.get("headline", ""): 
-                    continue
+            records = data.get("records", {})
+            info_list = records.get("info", [])
+            if not info_list:
+                return None
+
+            found_counties = set()
+            effective, expires = "", ""
+
+            for info in info_list:
+                # 取得該區段時間
+                eff = info.get("effective", "").replace("T", " ")[:19].replace("-", "/")
+                exp = info.get("expires", "").replace("T", " ")[:19].replace("-", "/")
                 
-                # 2. 顏色判斷 (黃色、紅色)
+                # 檢查 parameter 裡的 alert_color
+                is_target_color = False
                 parameters = info.get("parameter", [])
-                is_valid_color = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "橙色", "紅色"] for p in parameters)
-                if not is_valid_color:
-                    continue
+                for p in parameters:
+                    if p.get("valueName") == "alert_color" and p.get("value") in ["橙色", "紅色"]:
+                        is_target_color = True
+                        break
+                
+                # 如果符合橙色或紅色，提取縣市
+                if is_target_color:
+                    # 更新時間 (以符合條件的區段為準)
+                    effective, expires = eff, exp
+                    
+                    areas = info.get("area", [])
+                    for area_item in areas:
+                        area_desc = area_item.get("areaDesc", "")
+                        # 從 areaDesc (如: 臺南市南化區) 提取縣市名
+                        for city in self.taiwan_cities:
+                            if city in area_desc:
+                                found_counties.add(city)
 
-                # 3. 提取縣市 (排除 geocode)
-                cities = self._extract_cities(info.get("area", []))
+            if not found_counties:
+                return None
 
-                # 4. 回傳格式 (增加 geocodes key 是為了讓您的測試腳本 len() 不崩潰，內容改放 cities)
-                return {
-                    "type": "低溫",
-                    "headline": info.get("headline"),
-                    "effective": info.get("effective"),
-                    "onset": info.get("onset"),
-                    "expires": info.get("expires"),
-                    "cities": cities,
-                    "geocodes": cities  # 暫時保留 key 供測試腳本使用
-                }
-            return None
+            return {
+                "counties": sorted(list(found_counties)),
+                "alert_type": "low",
+                "effective": effective,
+                "expires": expires
+            }
         except Exception as e:
-            logger.error(f"004 解析錯誤: {e}")
+            logger.error(f"004 低溫解析錯誤: {e}")
             return None
 
-    def _parse_005_heat(self, path: Path):
-        """[專屬] 005 高溫特報 - 未來僅發送至 Redis"""
+    def _parse_005_heat(self, data):
+        """
+        解析高溫資訊 (W-C0033-005)
+        邏輯：遍歷 info，尋找 alert_color 為 橙色 或 紅色 的區塊，並合併縣市。
+        """
         try:
-            with open(path, 'r', encoding='utf-8-sig') as f:
-                data = json.load(f)
-            
-            infos = data.get("records", {}).get("info", [])
-            for info in infos:
-                # 1. 標題判斷 (氣象署高溫通常標題為 '高溫資訊')
-                if "高溫" not in info.get("headline", ""): 
-                    continue
+            records = data.get("records", {})
+            info_list = records.get("info", [])
+            if not info_list:
+                return None
+
+            found_counties = set()
+            effective, expires = "", ""
+
+            for info in info_list:
+                # 取得該區段時間
+                eff = info.get("effective", "").replace("T", " ")[:19].replace("-", "/")
+                exp = info.get("expires", "").replace("T", " ")[:19].replace("-", "/")
                 
-                # 2. 顏色判斷
+                # 檢查 parameter 裡的 alert_color
+                is_target_color = False
                 parameters = info.get("parameter", [])
-                is_valid_color = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "橙色", "紅色"] for p in parameters)
-                if not is_valid_color:
-                    continue
+                for p in parameters:
+                    if p.get("valueName") == "alert_color" and p.get("value") in ["橙色", "紅色"]:
+                        is_target_color = True
+                        break
+                
+                # 如果符合橙色或紅色，提取縣市
+                if is_target_color:
+                    # 更新時間
+                    effective, expires = eff, exp
+                    
+                    areas = info.get("area", [])
+                    for area_item in areas:
+                        area_desc = area_item.get("areaDesc", "")
+                        for city in self.taiwan_cities:
+                            if city in area_desc:
+                                found_counties.add(city)
 
-                # 3. 提取縣市
-                cities = self._extract_cities(info.get("area", []))
+            if not found_counties:
+                return None
 
-                return {
-                    "type": "高溫",
-                    "headline": info.get("headline"),
-                    "effective": info.get("effective"),
-                    "onset": info.get("onset"),
-                    "expires": info.get("expires"),
-                    "cities": cities,
-                    "geocodes": cities  # 暫時保留 key 供測試腳本使用
-                }
-            return None
+            return {
+                "counties": sorted(list(found_counties)),
+                "alert_type": "high",
+                "effective": effective,
+                "expires": expires
+            }
         except Exception as e:
-            logger.error(f"005 解析錯誤: {e}")
+            logger.error(f"005 高溫解析錯誤: {e}")
             return None
     
     def _parse_0034_1_typhoon(self, path: Path):

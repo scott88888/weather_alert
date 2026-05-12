@@ -23,9 +23,9 @@
         <onset>2026-05-08T13:28:00+08:00</onset>
         <expires>2026-05-09T23:30:00+08:00</expires>
         <senderName>中央氣象署</senderName>
-        <headline>陸上強風特報(黃色燈號)</headline>
-        <description>東北風增強，8日上午至9日晚上桃園市、新竹市、新竹縣、苗栗縣、臺中市、彰化縣、雲林縣、嘉義縣、臺南市、屏東縣、臺東縣(含蘭嶼、綠島)、澎湖縣、連江縣局部地區有平均風6級以上或陣風8級以上發生的機率(黃色燈號)，請注意。</description>
-        <instruction>黃色燈號：注意！在戶外請小心路樹、不堅固建築或定置物被強風吹落之碎片；戶外工作者請注意安全；加強牢固戶外物品；行車減速慢行，留意大眾運輸延誤訊息。</instruction>
+        <headline>陸上強風特報(橙色燈號)</headline>
+        <description>東北風增強，8日上午至9日晚上桃園市、新竹市、新竹縣、苗栗縣、臺中市、彰化縣、雲林縣、嘉義縣、臺南市、屏東縣、臺東縣(含蘭嶼、綠島)、澎湖縣、連江縣局部地區有平均風6級以上或陣風8級以上發生的機率(橙色燈號)，請注意。</description>
+        <instruction>橙色燈號：注意！在戶外請小心路樹、不堅固建築或定置物被強風吹落之碎片；戶外工作者請注意安全；加強牢固戶外物品；行車減速慢行，留意大眾運輸延誤訊息。</instruction>
         <web>https://www.cwa.gov.tw/V8/C/P/Warning/W25.html</web>
         <parameter>
             <valueName>alert_title</valueName>
@@ -33,7 +33,7 @@
         </parameter>
         <parameter>
             <valueName>severity_level</valueName>
-            <value>強風黃色燈號</value>
+            <value>強風橙色燈號</value>
         </parameter>
         <parameter>
             <valueName>alert_criteria</valueName>
@@ -41,7 +41,7 @@
         </parameter>
         <parameter>
             <valueName>alert_color</valueName>
-            <value>黃色</value>
+            <value>橙色</value>
         </parameter>
         <parameter>
             <valueName>website_color</valueName>
