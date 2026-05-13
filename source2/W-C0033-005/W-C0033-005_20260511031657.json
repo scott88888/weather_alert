@@ -91,9 +91,9 @@
                     "valueName": "profile:CAP-TWP:Event:1.0",
                     "value": "heat"
                 },
-                "effective": "2026-05-11T15:27:00+08:00",
-                "onset": "2026-05-11T15:26:00+08:00",
-                "expires": "2026-05-11T20:00:00+08:00",
+                "effective": "2026-05-13T15:27:00+08:00",
+                "onset": "2026-05-13T15:26:00+08:00",
+                "expires": "2026-05-13T20:00:00+08:00",
                 "senderName": "中央氣象署",
                 "headline": "高溫資訊",
                 "description": "天氣高溫炎熱，今(11)日中午前後臺南市為橙色燈號，有38度極端高溫出現的機率；高雄市、屏東縣為黃色燈號，請注意。",
@@ -135,6 +135,34 @@
                             "valueName": "Taiwan_Geocode_103",
                             "value": "6702300"
                         }
+                    },
+                    {
+                        "areaDesc": "高雄市內門區",
+                        "geocode": {
+                            "valueName": "Taiwan_Geocode_103",
+                            "value": "6403500"
+                        }
+                    },
+                    {
+                        "areaDesc": "新竹市北區",
+                        "geocode": {
+                            "valueName": "Taiwan_Geocode_103",
+                            "value": "1001314"
+                        }
+                    },
+                    {
+                        "areaDesc": "苗栗縣苑裡鎮",
+                        "geocode": {
+                            "valueName": "Taiwan_Geocode_103",
+                            "value": "1001314"
+                        }
+                    },
+                    {
+                        "areaDesc": "臺中市大甲區",
+                        "geocode": {
+                            "valueName": "Taiwan_Geocode_103",
+                            "value": "1001314"
+                        }
                     }
                 ]
             },
@@ -150,9 +178,9 @@
                     "valueName": "profile:CAP-TWP:Event:1.0",
                     "value": "heat"
                 },
-                "effective": "2026-05-11T15:27:00+08:00",
-                "onset": "2026-05-11T15:26:00+08:00",
-                "expires": "2026-05-11T20:00:00+08:00",
+                "effective": "2026-05-13T15:27:00+08:00",
+                "onset": "2026-05-13T15:26:00+08:00",
+                "expires": "2026-05-13T20:00:00+08:00",
                 "senderName": "中央氣象署",
                 "headline": "高溫資訊",
                 "description": "天氣高溫炎熱，今(11)日中午前後臺南市為橙色燈號，有38度極端高溫出現的機率；高雄市、屏東縣為黃色燈號，請注意。",

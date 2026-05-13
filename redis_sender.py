@@ -33,9 +33,9 @@ class RedisSender:
         # 額外安全性檢查：如果有效結束時間小於現在，則不發送
         try:
             expires_dt = datetime.strptime(alert_data['expires'], "%Y/%m/%d %H:%M:%S")
-            # if datetime.now() > expires_dt:
-            #     redis_logger.info(f" [跳過] 資料已過期 (Expires: {alert_data['expires']}), 不發送到 Redis。")
-            #     return False
+            if datetime.now() > expires_dt:
+                redis_logger.info(f" [跳過] 資料已過期 (Expires: {alert_data['expires']}), 不發送到 Redis。")
+                return False
         except Exception as e:
             redis_logger.error(f" [錯誤] 時間格式解析失敗，無法判斷是否過期: {e}")
 

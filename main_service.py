@@ -183,16 +183,16 @@ def main():
             latest_files = reader.get_latest_files()
 
             # # --- 執行 MQ 同步 (獨立 Try-Catch) ---
-            # try:
-            #     run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_files)
-            # except Exception as e:
-            #     mq_log.error(f"MQ 任務異常: {e}", exc_info=True)
+            try:
+                run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_files)
+            except Exception as e:
+                mq_log.error(f"MQ 任務異常: {e}", exc_info=True)
 
             # # --- 執行 Redis 備存 (獨立 Try-Catch) ---
-            # try:
-            #     run_redis_task(parser, redis_sender, latest_files)
-            # except Exception as e:
-            #     redis_log.error(f"Redis 任務異常: {e}", exc_info=True)
+            try:
+                run_redis_task(parser, redis_sender, latest_files)
+            except Exception as e:
+                redis_log.error(f"Redis 任務異常: {e}", exc_info=True)
 
             # --- 執行 LINE 通知 (獨立 Try-Catch) ---
             try:
