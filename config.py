@@ -14,11 +14,14 @@ TARGET_FOLDERS = [
 ]
 # TARGET_FOLDERS = ["W-C0033-001", "W-C0033-003", "W-C0033-006", "W-C0034-001"]
 # --- LINE 通知配置 (新增) ---
+# LINE_CONFIG = {
+#     "CHANNEL_ACCESS_TOKEN": "mWxt76XBmn49LyKrny9x3swvE+llc3eoqlILbaI52BA9hrPBg/Kgg1ntTQ94i+kynCYZOISdgPXxsm0YtZwmktYZHXSS+fRDRmeomvqTeT0WR8GvQzlYv9Xjo4uJ7y8PT6PmgU50X6RRbknt2H3VJgdB04t89/1O/w1cDnyilFU=",
+#     "TARGET_USER_ID": "U3bcbfaef1c6613b2ec00f429b194aaed",
+# }
 LINE_CONFIG = {
-    "CHANNEL_ACCESS_TOKEN": "mWxt76XBmn49LyKrny9x3swvE+llc3eoqlILbaI52BA9hrPBg/Kgg1ntTQ94i+kynCYZOISdgPXxsm0YtZwmktYZHXSS+fRDRmeomvqTeT0WR8GvQzlYv9Xjo4uJ7y8PT6PmgU50X6RRbknt2H3VJgdB04t89/1O/w1cDnyilFU=",
-    "TARGET_USER_ID": "U3bcbfaef1c6613b2ec00f429b194aaed",
+    "CHANNEL_ACCESS_TOKEN": "QgQgHW0MwarV3GgnBEA7VKodK7eDonwWXI1bNLAmsZNFkMvOCuvUtFwnfPSpvj63KS/DsvmUL9luRjirNb8iH2XfEztqQIzcymA0udHMsrs+n9kALDn5lWRZhvxyKj0uL5TDm2C+2i5iyVm5UfzjBgdB04t89/1O/w1cDnyilFU=",
+    "TARGET_USER_ID": "U48aa97f68f7ee05fe7f74b042c4ccf96",
 }
-
 # --- LINE 專用 Redis Key 命名規範 (新增) ---
 # 依照要求調整為 weather_s:line_英文名
 LINE_REDIS_KEYS = {
