@@ -44,19 +44,39 @@ INCIDENT_TYPE_MAP = {
 }
 
 # --- 資料庫連線配置 (DB 110) ---
+# DB_CONFIG = {
+#     "host": "192.168.2.110",
+#     "port": 3306,
+#     "user": "freeway",
+#     "password": "sochamp999",
+#     "database": "tcss",
+#     "charset": "utf8mb4",
+#     "cursorclass": pymysql.cursors.DictCursor
+# }
+# --- 資料庫連線配置 (線上) ---
 DB_CONFIG = {
-    "host": "192.168.2.110",
+    "host": "10.105.6.9",
     "port": 3306,
     "user": "freeway",
-    "password": "sochamp999",
+    "password": "1a2b3c4d5e",
     "database": "tcss",
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor
 }
 
+
+
 # --- Redis 連線配置 (DB 0) ---
+# REDIS_CONFIG = {
+#     "host": "192.168.2.107",
+#     "port": 6379,
+#     "db": 0,
+#     "password": "sochamp999",
+#     "decode_responses": True
+# }
+# --- Redis 連線配置 (線上) ---
 REDIS_CONFIG = {
-    "host": "192.168.2.107",
+    "host": "10.105.6.100",
     "port": 6379,
     "db": 0,
     "password": "sochamp999",

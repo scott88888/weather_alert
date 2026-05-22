@@ -25,7 +25,7 @@ def setup_task_logger(name, filename):
     
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    
+    logger.propagate = False
     # 避免重複添加 Handler
     if not logger.handlers:
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -39,10 +39,10 @@ def setup_task_logger(name, filename):
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         
-        # 終端機同步輸出 (可選)
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
+        # # 終端機同步輸出 (可選)
+        # console = logging.StreamHandler()
+        # console.setFormatter(formatter)
+        # logger.addHandler(console)
         
     return logger
 
@@ -68,6 +68,7 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
             if file_path:
                 mq_log.info(f"===== 開始處理 {folder}: {file_path.name} =====")
                 parsed_data = parser.parse(folder, file_path)
+                mq_log.info(f"   [偵錯] {folder} 解析結果 parsed_data 是否有值: {bool(parsed_data)}")
             else:
                 mq_log.debug(f"[{folder}] 無新檔案，執行例行過期檢查...")
 
@@ -76,7 +77,7 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
             if parsed_data:
                 geocodes = parsed_data.get('geocodes', set())
                 matched_segments = road_lookup.get_segments_by_geocodes(geocodes)
-                
+                mq_log.info(f"   [偵錯] {folder} 提取 geocodes 數量: {len(geocodes)}，比對到路網線段數量: {len(matched_segments)}")
                 for seg in matched_segments:
                     # 統一時間格式處理
                     eff = parsed_data.get('startTime') or parsed_data.get('effective')
@@ -95,7 +96,7 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
 
             # 同步資料庫與發送 MQ
             to_cancel_actions, to_active_msgs = sync_engine.sync(final_parsed_results, folder)
-
+            mq_log.info(f"   [偵錯] {folder} 同步引擎決策：欲解除 {len(to_cancel_actions)} 筆，欲成立 {len(to_active_msgs)} 筆")
             # 處理解除
             for msg, db_record in to_cancel_actions:
                 inc_id = db_record['incidentId']
@@ -122,7 +123,8 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
 
         except Exception as folder_err:
             mq_log.error(f"處理 {folder} 時發生錯誤: {folder_err}", exc_info=True)
-
+    mq_log.info("--- MQ 同步任務執行結束 ---")
+    
 def run_redis_task(parser, redis_sender, latest_files):
     """任務 B：高低溫 Redis 備存"""
     redis_log.info("--- 開始執行 Redis 資料備存任務 ---")
