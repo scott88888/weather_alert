@@ -22,6 +22,14 @@ LINE_CONFIG = {
     "CHANNEL_ACCESS_TOKEN": "QgQgHW0MwarV3GgnBEA7VKodK7eDonwWXI1bNLAmsZNFkMvOCuvUtFwnfPSpvj63KS/DsvmUL9luRjirNb8iH2XfEztqQIzcymA0udHMsrs+n9kALDn5lWRZhvxyKj0uL5TDm2C+2i5iyVm5UfzjBgdB04t89/1O/w1cDnyilFU=",
     "TARGET_USER_ID": "U48aa97f68f7ee05fe7f74b042c4ccf96",
 }
+
+
+FORWARD_API_CONFIG = {
+    "URL": "https://msgnotify.tcloud.freeway.gov.tw/api/apiSendMessage",
+    "BEARER_TOKEN": "141355|td5aFdvHR1s4Z6KCsJ9A6y3MS2lpZncFdOExlys91115ccc1",
+    "GROUP_ID": "tfb-test-a"
+}
+
 # --- LINE 專用 Redis Key 命名規範 (新增) ---
 # 依照要求調整為 weather_s:line_英文名
 LINE_REDIS_KEYS = {
