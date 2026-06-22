@@ -1,50 +1,49 @@
 #!/bin/bash
 
-# ==========================================
-# 強制補足環境變數 (Cron 必備)
-# ==========================================
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export PATH
+# 定義基礎日誌目錄
+LOG_DIR="/home/sc/weather_forecast/logs"
+
+# 切換到 logs 目錄，如果目錄不存在就結束，避免後面指令出錯
+cd "${LOG_DIR}" || exit 1
+
+# 定義四個固定的服務名稱（對應檔名前綴與資料夾名稱）
+SERVICES=("weather_redis" "weather_mq" "weather_line" "redis_sync")
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 開始執行日誌歸檔與清理作業 ==="
 
 # ==========================================
-# 設定區 (已修正為測試機正確路徑)
+# 功能一：遍歷四個服務，建立資料夾並移動檔案
 # ==========================================
-BASE_LOG_DIR="/home/sc/weather_forecast/logs"
-
-# 取得昨天日期 (格式: 20260527)
-YESTERDAY=$(date -d "yesterday" +%Y%m%d)
-
-# 定義要處理的 Log 名稱
-LOG_NAMES=("weather_redis" "weather_mq" "weather_line" "redis_sync")
-
-# ==========================================
-# 核心邏輯
-# ==========================================
-for NAME in "${LOG_NAMES[@]}"; do
-    # 【修正】原始 Log 檔案都在 logs/ 根目錄下
-    # 例如: /home/sc/weather_forecast/logs/weather_redis.log
-    SOURCE_FILE="$BASE_LOG_DIR/$NAME.log"
-    
-    # 備份的目標子目錄
-    # 例如: /home/sc/weather_forecast/logs/weather_redis
-    TARGET_DIR="$BASE_LOG_DIR/$NAME"
-    
-    # 1. 確保子目錄存在，如果不存在就建立
-    mkdir -p "$TARGET_DIR"
-
-    # 2. 檢查原始 Log 是否存在，存在才進行備份與清空
-    if [ -f "$SOURCE_FILE" ]; then
-        # 複製並命名到子資料夾內 (例如: .../logs/weather_redis/weather_redis_20260527.log)
-        cp "$SOURCE_FILE" "$TARGET_DIR/${NAME}_$YESTERDAY.log"
-        
-        # 利用 > 符號直接清空 logs/ 下的原始 Log 檔案，維持 Inode
-        > "$SOURCE_FILE"
+for SERVICE in "${SERVICES[@]}"; do
+    # 確保對應的目標資料夾存在，不存在就建立
+    if [ ! -d "${SERVICE}" ]; then
+        mkdir -p "${SERVICE}"
+        echo "建立資料夾: ${LOG_DIR}/${SERVICE}"
     fi
 
-    # 3. 清理該子目錄下超過 90 天的舊 Log
-    find "$TARGET_DIR" -name "${NAME}_*.log" -type f -mtime +90 -exec rm -f {} +
+    # 【這裡修正了】加上 -regextype posix-extended 才能正確辨識 {4} 和 {2}
+    find . -maxdepth 1 -regextype posix-extended -type f -name "${SERVICE}\.log\.[0-9]{4}-[0-9]{2}-[0-9]{2}" 2>/dev/null | while read -r log_file; do
+        if [ -f "${log_file}" ]; then
+            echo "正在歸檔: ${log_file} -> ${SERVICE}/"
+            mv "${log_file}" "${SERVICE}/"
+        fi
+    done
 done
 
-# 確保紀錄執行的 log 檔資料夾存在
-mkdir -p "$BASE_LOG_DIR"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$YESTERDAY] Log 歸檔至各自目錄與清空完成。" >> "$BASE_LOG_DIR/archive_exec.log"
+# ==========================================
+# 功能二：檢查這四個資料夾，刪除大於 90 天的舊檔案
+# ==========================================
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 開始檢查並清理 90 天前的舊檔案 ==="
+
+for SERVICE in "${SERVICES[@]}"; do
+    if [ -d "${SERVICE}" ]; then
+        echo "檢查資料夾: ${SERVICE}/"
+        
+        # 尋找該資料夾下，修改時間超過 90 天的檔案，並直接刪除 (-delete)
+        find "${SERVICE}" -type f -mtime +90 -print -delete | while read -r deleted_file; do
+            echo "已刪除過期檔案: ${deleted_file}"
+        done
+    fi
+done
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 作業完成 ==="

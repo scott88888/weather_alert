@@ -145,6 +145,7 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
                     mq_log.info(f"   [DB更新] 解除成功 ID: {inc_id}")
                 except Exception as e:
                     mq_log.warning(f"   [MQ失敗] ID {inc_id} 解除發送失敗: {e}")
+                    raise e
 
             # 處理成立
             for msg in to_active_msgs:
@@ -162,6 +163,7 @@ def run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_file
                         mq_log.info(f"   [DB更新] 成立成功 ID: {inc_id}")
                 except Exception as e:
                     mq_log.error(f"   [MQ失敗] ID {inc_id} 成立發送失敗: {e}")
+                    raise e
 
         except Exception as folder_err:
             mq_log.error(f"處理 {folder} 時發生錯誤: {folder_err}", exc_info=True)
