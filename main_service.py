@@ -15,7 +15,7 @@ from alert_sync_engine import AlertSyncEngine
 from mq_sender import MQSender
 from redis_sender import RedisSender
 from line_notify_engine import LineNotifyEngine
-from config import TARGET_FOLDERS, SOURCE_FOLDER, INCIDENT_TYPE_MAP
+from config import TARGET_FOLDERS, SOURCE_FOLDER, INCIDENT_TYPE_MAP, SERVICE_MODE
 # ==========================================
 # 獨立日誌配置 (確保 Log 分開)
 # ==========================================
@@ -206,19 +206,22 @@ def run_line_task(line_engine, latest_files):
     line_log.info("--- 開始執行 LINE 通知任務 ---")
     line_engine.run(latest_files)
     line_log.info("--- 結束本次執行 LINE 通知任務 ---")
+# 請記得在檔案頂部引入你的 config 參數
+# from config import SERVICE_MODE
+
 def main():
     # 1. 實例化所有共用組件
-    reader = WeatherFileReader() #
-    parser = WeatherParser() #
+    reader = WeatherFileReader()
+    parser = WeatherParser()
     road_lookup = RoadNetworkLookup()
     
     # 2. 實例化任務引擎
-    sync_engine = AlertSyncEngine() #
-    mq_sender = MQSender() #
-    redis_sender = RedisSender() #
+    sync_engine = AlertSyncEngine()
+    mq_sender = MQSender()
+    redis_sender = RedisSender()
     line_engine = LineNotifyEngine()
 
-    mq_log.info("氣象整合監控服務啟動...")
+    mq_log.info(f"氣象整合監控服務啟動... (目前運行模式: {SERVICE_MODE})")
 
     while True:
         start_time = time.time()
@@ -227,23 +230,30 @@ def main():
             # 取得當前所有資料夾的最新檔案清單
             latest_files = reader.get_latest_files()
 
-            # # --- 執行 MQ 同步 (獨立 Try-Catch) ---
-            try:
-                run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_files)
-            except Exception as e:
-                mq_log.error(f"MQ 任務異常: {e}", exc_info=True)
+            # 4 = 全關，直接跳過這輪任務
+            if SERVICE_MODE == 4:
+                mq_log.debug("目前模式為全關 (4)，跳過執行。")
+            else:
+                # --- 執行 MQ 同步 (模式為 0 或 1 時開啟) ---
+                if SERVICE_MODE in [0, 1]:
+                    try:
+                        run_mq_task(reader, parser, road_lookup, sync_engine, mq_sender, latest_files)
+                    except Exception as e:
+                        mq_log.error(f"MQ 任務異常: {e}", exc_info=True)
 
-            # # --- 執行 Redis 備存 (獨立 Try-Catch) ---
-            try:
-                run_redis_task(parser, redis_sender, latest_files)
-            except Exception as e:
-                redis_log.error(f"Redis 任務異常: {e}", exc_info=True)
+                # --- 執行 Redis 備存 (模式為 0 或 2 時開啟) ---
+                if SERVICE_MODE in [0, 2]:
+                    try:
+                        run_redis_task(parser, redis_sender, latest_files)
+                    except Exception as e:
+                        redis_log.error(f"Redis 任務異常: {e}", exc_info=True)
 
-            # --- 執行 LINE 通知 (獨立 Try-Catch) ---
-            try:
-                run_line_task(line_engine, latest_files)
-            except Exception as e:
-                line_log.error(f"LINE 任務異常: {e}", exc_info=True)
+                # --- 執行 LINE 通知 (模式為 0 或 3 時開啟) ---
+                if SERVICE_MODE in [0, 3]:
+                    try:
+                        run_line_task(line_engine, latest_files)
+                    except Exception as e:
+                        line_log.error(f"LINE 任務異常: {e}", exc_info=True)
 
         except Exception as global_e:
             mq_log.error(f"主循環全局異常: {global_e}")

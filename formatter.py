@@ -30,14 +30,14 @@ def generate_incident_id(effective_time_str, sequence, cc_id, inc_type):
     return f"{time_str}{str(sequence).zfill(3)}{str(cc_id or 0).zfill(2)}{str(inc_type).zfill(4)}"
 
 def transform_to_tcss_format(segment_data, filename, time_info, sequence):
-    now_str = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     inc_type = INCIDENT_TYPE_MAP.get(filename, 99)
     cc_id = segment_data.get('controlCenterId', '10') # 從路網表抓取的中心代碼
     eff_time = time_info.get("effective", "")
     
     def fmt_val(v):
         if isinstance(v, datetime.datetime):
-            return v.strftime("%Y/%m/%d %H:%M:%S")
+            return v.strftime("%Y-%m-%d %H:%M:%S")
         return str(v)
     
     incident_id = generate_incident_id(eff_time, sequence, cc_id, inc_type)
@@ -62,15 +62,16 @@ def transform_to_tcss_format(segment_data, filename, time_info, sequence):
             "closeRoadStartTime": "", "closeRoadEndTime": "", "rampWay": 0, "tunnelId": 0,
             "congestionLevel": 0, "blockagePattern": "00000000",
             "alarmDescription": f"氣象特報：{filename}",
-            "clientPexMode": "0", "incStepRescue": 0
+            "clientPexMode": 2, "incStepRescue": 0
         }
     }
+            # clientPexMode// 0: 使用預設的方式執行// 1: 自動執行反應計畫// 2: 不執行反應計畫
 
 def transform_to_cancel_format(db_record):
-    now_str = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     def fmt_dt(val):
         if isinstance(val, datetime.datetime):
-            return val.strftime("%Y/%m/%d %H:%M:%S")
+            return val.strftime("%Y-%m-%d %H:%M:%S")
         return str(val)
     
     raw_type = db_record.get('alertType', '99')

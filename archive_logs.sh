@@ -1,49 +1,44 @@
 #!/bin/bash
 
-# 定義基礎日誌目錄
-LOG_DIR="/home/sc/weather_forecast/logs"
-
-# 切換到 logs 目錄，如果目錄不存在就結束，避免後面指令出錯
-cd "${LOG_DIR}" || exit 1
-
-# 定義四個固定的服務名稱（對應檔名前綴與資料夾名稱）
-SERVICES=("weather_redis" "weather_mq" "weather_line" "redis_sync")
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 開始執行日誌歸檔與清理作業 ==="
+# ==========================================
+# 強制補足環境變數 (Cron 必備)
+# ==========================================
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # ==========================================
-# 功能一：遍歷四個服務，建立資料夾並移動檔案
+# 設定區 (已修正為你實際的 freeway 路徑)
 # ==========================================
-for SERVICE in "${SERVICES[@]}"; do
-    # 確保對應的目標資料夾存在，不存在就建立
-    if [ ! -d "${SERVICE}" ]; then
-        mkdir -p "${SERVICE}"
-        echo "建立資料夾: ${LOG_DIR}/${SERVICE}"
-    fi
+BASE_LOG_DIR="/home/freeway/SC/weather/weather_forecast/logs"
 
-    # 【這裡修正了】加上 -regextype posix-extended 才能正確辨識 {4} 和 {2}
-    find . -maxdepth 1 -regextype posix-extended -type f -name "${SERVICE}\.log\.[0-9]{4}-[0-9]{2}-[0-9]{2}" 2>/dev/null | while read -r log_file; do
-        if [ -f "${log_file}" ]; then
-            echo "正在歸檔: ${log_file} -> ${SERVICE}/"
-            mv "${log_file}" "${SERVICE}/"
-        fi
-    done
-done
+# 取得昨天日期 (格式: 20260521)
+YESTERDAY=$(date -d "yesterday" +%Y%m%d)
+
+# 定義要處理的 Log 檔案名稱 (不含副檔名)
+LOG_NAMES=("weather_redis" "weather_mq" "weather_line" "redis_sync")
 
 # ==========================================
-# 功能二：檢查這四個資料夾，刪除大於 90 天的舊檔案
+# 核心邏輯
 # ==========================================
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 開始檢查並清理 90 天前的舊檔案 ==="
+for NAME in "${LOG_NAMES[@]}"; do
+    # 定義原始檔案路徑與目標目錄
+    SOURCE_FILE="$BASE_LOG_DIR/$NAME.log"
+    TARGET_DIR="$BASE_LOG_DIR/$NAME"
+    
+    # 1. 確保子目錄存在 (例如 /logs/weather_redis)
+    mkdir -p "$TARGET_DIR"
 
-for SERVICE in "${SERVICES[@]}"; do
-    if [ -d "${SERVICE}" ]; then
-        echo "檢查資料夾: ${SERVICE}/"
+    # 2. 檢查原始 Log 是否存在，存在才進行備份與清空
+    if [ -f "$SOURCE_FILE" ]; then
+        # 複製到子目錄，並加上昨天日期
+        cp "$SOURCE_FILE" "$TARGET_DIR/${NAME}_$YESTERDAY.log"
         
-        # 尋找該資料夾下，修改時間超過 90 天的檔案，並直接刪除 (-delete)
-        find "${SERVICE}" -type f -mtime +90 -print -delete | while read -r deleted_file; do
-            echo "已刪除過期檔案: ${deleted_file}"
-        done
+        # 利用 > 符號直接清空原始 Log 檔案，維持 Inode，Python 服務不中斷
+        > "$SOURCE_FILE"
     fi
+
+    # 4. 清理該目錄下超過 90 天的舊 Log
+    find "$TARGET_DIR" -name "${NAME}_*.log" -type f -mtime +90 -exec rm -f {} +
 done
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] === 作業完成 ==="
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$YESTERDAY] Log 歸檔至各自目錄與清空完成。" >> "$BASE_LOG_DIR/archive_exec.log"

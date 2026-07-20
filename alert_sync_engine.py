@@ -52,8 +52,19 @@ class AlertSyncEngine:
             current_res = next((r for r in parsed_results if (
                 str(r['freewayId']), str(r['mainDirection']), 
                 float(r['fmileAge']), float(r['tmileAge'])) == key), None)
-            
-            time_changed = (current_res and record['expiresTime'] != current_res['expiresTime'])
+            time_changed = False
+            if current_res:
+                def to_compare_str(t_val):
+                    if not t_val:
+                        return ""
+                    if isinstance(t_val, datetime.datetime):
+                        return t_val.strftime("%Y-%m-%d %H:%M:%S")
+                    # 將斜線與 T 替換，取前 19 碼字元
+                    return str(t_val).replace('T', ' ').replace('/', '-').split('+')[0][:19]
+
+                db_time = to_compare_str(record['expiresTime'])
+                curr_time = to_compare_str(current_res['expiresTime'])
+                time_changed = (db_time != curr_time)
             is_expired = now > record['expiresTime']
 
             if not is_in_current or time_changed or is_expired:

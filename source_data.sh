@@ -1,21 +1,12 @@
 #!/bin/bash
 
 # ==========================================
-# 強制補足環境變數 (Cron 必備)
-# ==========================================
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export PATH
-
-# ==========================================
 # 設定區
 # ==========================================
 REMOTE_USER="freeway"
 REMOTE_IP="10.104.6.31"
 REMOTE_BASE_PATH="/home/freeway/sc/getapi/data/incoming"
 LOCAL_BASE_PATH="/home/freeway/SC/weather/weather_forecast/source" 
-
-# 【關鍵】請確保這是你 freeway 帳號用來免密碼登入的私鑰路徑
-SSH_KEY="/home/freeway/.ssh/id_rsa"
 
 FOLDERS=("W-C0033-001" "W-C0034-001" "W-C0033-003" "W-C0033-004" "W-C0033-005" "W-C0033-006")
 
@@ -32,8 +23,10 @@ log_msg() {
 }
 
 # ==========================================
-# 核心邏輯
+# 核心邏輯 (最穩健的 Linux 標準 flock 宣告)
 # ==========================================
+
+# 用最直覺的方式檢查鎖。如果鎖失敗，直接寫 Log 並退出
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] [警告] 偵測到上一分鐘的同步尚未結束，本次自動退出。" >> "$LOG_FILE"
@@ -43,14 +36,32 @@ fi
 log_msg "=================== 同步作業開始 ==================="
 
 # --------------------------------------------------
-# 每天晚上 12:10 分自動清理昨天舊檔
+# 修正與新增：每天午夜 (00:00~00:59) 自動將昨天舊檔歸檔至日期資料夾
 # --------------------------------------------------
-CURRENT_TIME=$(date +%H%M)
-if [ "$CURRENT_TIME" = "0010" ]; then
+CURRENT_HOUR=$(date +%H)
+if true; then
   YESTERDAY=$(date -d "yesterday" +%Y%m%d)
-  log_msg "[清理機制] 偵測到目前時間為午夜 12:10，啟動舊檔清理程序..."
-  find "$LOCAL_BASE_PATH" -type f \( -name "*_${YESTERDAY}*.json" -o -name "*_${YESTERDAY}*.cap" \) -delete || true
-  log_msg "[清理機制] 昨天舊檔案清理完畢。"
+  log_msg "[歸檔機制] 偵測到目前為午夜時段，啟動昨天 (${YESTERDAY}) 檔案歸檔程序..."
+  
+  for FOLDER in "${FOLDERS[@]}"
+  do
+    TARGET_DIR="${LOCAL_BASE_PATH}/${FOLDER}/${YESTERDAY}"
+    
+    # 檢查該資料夾下是否有昨天的檔案，有的話才處理
+    # 這裡使用 find 尋找檔名包含昨天日期，且「不在」剛建立的日期資料夾內的檔案
+    FILES_TO_MOVE=$(find "${LOCAL_BASE_PATH}/${FOLDER}" -maxdepth 1 -type f \( -name "*_${YESTERDAY}*.json" -o -name "*_${YESTERDAY}*.cap" \))
+    
+    if [ -n "$FILES_TO_MOVE" ]; then
+      mkdir -p "$TARGET_DIR"
+      log_msg "[歸檔機制] 建立歸檔資料夾: ${TARGET_DIR}"
+      
+      echo "$FILES_TO_MOVE" | while read -r file; do
+        mv "$file" "$TARGET_DIR/"
+        log_msg "[歸檔機制] 已搬移: $(basename "$file") -> ${YESTERDAY}/"
+      done
+    fi
+  done
+  log_msg "[歸檔機制] 昨天舊檔案歸檔完畢。"
   log_msg "----------------------------------------------------"
 fi
 
@@ -62,8 +73,7 @@ do
   log_msg "【資料夾: ${FOLDER}】開始處理..."
   mkdir -p "${LOCAL_BASE_PATH}/${FOLDER}/"
 
-  # 【修正】加上 -i $SSH_KEY 確保排程環境下能正確使用金鑰，並加入 StrictHostKeyChecking=no 防止阻擋
-  REMOTE_LATEST_FILE=$(ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "ls -t ${REMOTE_BASE_PATH}/${FOLDER}/*.json ${REMOTE_BASE_PATH}/${FOLDER}/*.cap 2>/dev/null | head -n 1" || true)
+  REMOTE_LATEST_FILE=$(ssh -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_IP}" "ls -t ${REMOTE_BASE_PATH}/${FOLDER}/*.json ${REMOTE_BASE_PATH}/${FOLDER}/*.cap 2>/dev/null | head -n 1" || true)
 
   if [ -z "$REMOTE_LATEST_FILE" ]; then
     log_msg "【資料夾: ${FOLDER}】遠端目錄為空，或無任何 .json / .cap 檔案。跳過。"
@@ -74,13 +84,13 @@ do
   FILE_NAME=$(basename "$REMOTE_LATEST_FILE")
   log_msg "【資料夾: ${FOLDER}】偵測到遠端最新檔案為: ${FILE_NAME}"
 
-  if [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${FILE_NAME}" ]; then
-    log_msg "【資料夾: ${FOLDER}】本機已存在相同檔案 [${FILE_NAME}]。略過不下載。"
+  # 修改判斷：本機根目錄或歸檔目錄有相同檔案，都視為已下載
+  if [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${FILE_NAME}" ] || [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${YESTERDAY}/${FILE_NAME}" ]; then
+    log_msg "【資料夾: ${FOLDER}】本機（或歸檔區）已存在相同檔案 [${FILE_NAME}]。略過不下載。"
   else
     log_msg "【資料夾: ${FOLDER}】本機無此檔案，開始透過 SFTP 下載..."
     
-    # 【修正】SFTP 下載同樣強制指定金鑰路徑 -i $SSH_KEY
-    sftp -i "$SSH_KEY" -o StrictHostKeyChecking=no -b - "${REMOTE_USER}@${REMOTE_IP}" <<EOF >> "$LOG_FILE" 2>&1 || true
+    sftp -b - "${REMOTE_USER}@${REMOTE_IP}" <<EOF >> "$LOG_FILE" 2>&1 || true
 get "${REMOTE_BASE_PATH}/${FOLDER}/${FILE_NAME}" "${LOCAL_BASE_PATH}/${FOLDER}/${FILE_NAME}"
 quit
 EOF
@@ -95,3 +105,5 @@ EOF
 done
 
 log_msg "=================== 同步作業結束 ==================="
+
+
