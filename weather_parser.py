@@ -68,78 +68,134 @@ class WeatherParser:
         except Exception as e:
             logger.error(f"001 解析錯誤: {e}"); return None
 
+    def _parse_003_rain(self, path: Path):    
+        """[降雨]"""
+        # =========================================================
+        # 🎯【條件設定區】欲發送警報的顏色
+        # 若未來只想發橙色與紅色，直接改為: ["橙色", "紅色"] 即可
+        # =========================================================
+        target_colors = ["黃色", "橙色", "紅色"]
+        
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            infos = data.get("records", {}).get("info", [])
+            if not infos: return None  
+            
+            result = {"type": "降雨", "geocodes": set(), "effective": "", "expires": "", "folderName": "W-C0033-003"}
+            all_geocodes = set()
+            
+            # 遍歷所有 info 區塊 (避免遺漏黃色或橙色)
+            for info in infos:
+                headline = info.get("headline", "")
+                parameters = info.get("parameter", [])
+                exp = info.get("expires", "").replace('T', ' ').split('+')[0]
+                eff = info.get("effective", "").replace('T', ' ').split('+')[0]
+                
+                if not result["effective"]: result["effective"] = eff
+                if not result["expires"]: result["expires"] = exp
+                
+                if "解除" in headline: return result  
+                
+                # 使用頂部的 target_colors 進行比對
+                is_valid_color = any(
+                    p.get("valueName") == "alert_color" and p.get("value") in target_colors 
+                    for p in parameters
+                )
+                
+                if is_valid_color:
+                    if exp:
+                        exp_dt = datetime.datetime.strptime(exp, "%Y-%m-%d %H:%M:%S")
+                        if datetime.datetime.now() > (exp_dt + datetime.timedelta(hours=6)):
+                            continue
+                            
+                    for a in info.get("area", []):
+                        geo_obj = a.get("geocode", [])
+                        geo_list = [geo_obj] if isinstance(geo_obj, dict) else (geo_obj if isinstance(geo_obj, list) else [])
+                        
+                        for item in geo_list:
+                            geo_val = ""
+                            if isinstance(item, dict):
+                                val_name = str(item.get("valueName", "")).strip()
+                                if not val_name or val_name == "Taiwan_Geocode_103":
+                                    geo_val = str(item.get("value", "")).strip()
+                            elif isinstance(item, str):
+                                geo_val = item.strip()
+                            
+                            if geo_val:
+                                clean_geo = geo_val.split('.')[0]
+                                if len(clean_geo) == 8 and clean_geo.endswith('0'):
+                                    clean_geo = clean_geo.rstrip('0')
+                                all_geocodes.add(clean_geo)
+
+            result["geocodes"] = all_geocodes
+            return result
+        except Exception as e:
+            logger.error(f"003 解析錯誤: {e}"); return None
+
     def _parse_006_wind(self, path: Path):
         """[強風]"""
+        # =========================================================
+        # 🎯【條件設定區】欲發送警報的顏色
+        # 若未來只想發橙色與紅色，直接改為: ["橙色", "紅色"] 即可
+        # =========================================================
+        target_colors = ["黃色", "橙色", "紅色"]
+        
         try:
             tree = ET.parse(path)
             root = tree.getroot()
             def clean_time(t_str): return t_str.replace('T', ' ').split('+')[0] if t_str else ""
-            geocodes = set()
-            eff_time, exp_time = "", ""
-            info = root.find('.//cap:info', self.cap_ns)
-            if info is not None:
+            
+            result = {"type": "強風", "geocodes": set(), "effective": "", "expires": "", "folderName": "W-C0033-006"}
+            all_geocodes = set()
+            
+            # 改用 findall 取得所有 <cap:info> 區塊
+            info_list = root.findall('.//cap:info', self.cap_ns)
+            if not info_list: return None
+            
+            for info in info_list:
                 event = info.find('cap:event', self.cap_ns).text or ""
                 headline = info.find('cap:headline', self.cap_ns).text or ""
                 eff_time = clean_time(info.find('cap:effective', self.cap_ns).text)
                 exp_time = clean_time(info.find('cap:expires', self.cap_ns).text)
+                
+                if not result["effective"]: result["effective"] = eff_time
+                if not result["expires"]: result["expires"] = exp_time
+                
                 if "解除" in headline or "解除" in event:
-                    return {"type": "強風", "geocodes": set(), "effective": eff_time, "expires": exp_time, "folderName": "W-C0033-006"}
+                    return result
+                
                 if "強風" in event:
                     is_valid_color = False
                     for param in info.findall('cap:parameter', self.cap_ns):
                         value_name = param.find('cap:valueName', self.cap_ns)
                         value = param.find('cap:value', self.cap_ns)
                         if value_name is not None and value is not None:
-                            if value_name.text == "alert_color" and value.text in ["橙色", "紅色"]:
+                            # 使用頂部的 target_colors 比對
+                            if value_name.text == "alert_color" and value.text in target_colors:
                                 is_valid_color = True
                                 break
-                    if not is_valid_color: return None
+                    
+                    if not is_valid_color:
+                        continue
+                        
                     if not self._check_is_expired(exp_time):
                         for area in info.findall('cap:area', self.cap_ns):
                             for geo in area.findall('cap:geocode', self.cap_ns):
                                 val = geo.find('cap:value', self.cap_ns).text
-                                if val: geocodes.add(val.split('.')[0])
-                    return {"type": "強風", "geocodes": geocodes, "effective": eff_time, "expires": exp_time, "folderName": "W-C0033-006"}
-            return None
+                                if val:
+                                    clean_geo = val.split('.')[0]
+                                    if len(clean_geo) == 8 and clean_geo.endswith('0'):
+                                        clean_geo = clean_geo.rstrip('0')
+                                    all_geocodes.add(clean_geo)
+
+            result["geocodes"] = all_geocodes
+            return result
         except Exception as e:
-            logger.error(f"006 解析錯誤: {e}"); return None   
-            
-    def _parse_003_rain(self, path: Path):    
-        """[降雨]"""
-        try:
-            with open(path, 'r', encoding='utf-8-sig') as f:
-                data = json.load(f)
-            infos = data.get("records", {}).get("info", [])
-            result = {"type": "降雨", "geocodes": set(), "effective": "", "expires": "", "folderName": "W-C0033-003"}
-            if not infos: return None  
-            info = infos[0]
-            headline = info.get("headline", "")
-            parameters = info.get("parameter", [])
-            exp = info.get("expires", "").replace('T', ' ').split('+')[0]
-            eff = info.get("effective", "").replace('T', ' ').split('+')[0]
-            result["effective"] = eff
-            result["expires"] = exp
-            if exp:
-                exp_dt = datetime.datetime.strptime(exp, "%Y-%m-%d %H:%M:%S")
-                if datetime.datetime.now() > (exp_dt + datetime.timedelta(hours=48)): return None
-            if "解除" in headline: return result  
-            is_valid_color = any(p.get("valueName") == "alert_color" and p.get("value") in ["黃色", "橙色", "紅色"] for p in parameters)
-            if is_valid_color:
-                if exp:
-                    exp_dt = datetime.datetime.strptime(exp, "%Y-%m-%d %H:%M:%S")
-                    if datetime.datetime.now() > (exp_dt + datetime.timedelta(hours=6)):
-                        result["geocodes"] = set(); return result  
-                geocodes = set()
-                for a in info.get("area", []):
-                    geo_obj = a.get("geocode", {})
-                    geo_val = geo_obj.get("value", "") if isinstance(geo_obj, dict) else str(geo_obj)
-                    if geo_val: geocodes.add(str(geo_val).split('.')[0])
-                result["geocodes"] = geocodes
-                return result
-            return None
-        except Exception as e:
-            logger.error(f"003 解析錯誤: {e}"); return None
-        
+            logger.error(f"006 解析錯誤: {e}"); return None
+
+
+
     def _parse_004_cold(self, data):
         """[低溫]"""
         try:
