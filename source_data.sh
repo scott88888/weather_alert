@@ -15,6 +15,7 @@ LOG_DIR="${SCRIPT_DIR}/logs"
 mkdir -p "$LOG_DIR"
 
 TODAY=$(date +%Y%m%d)
+YESTERDAY=$(date -d "yesterday" +%Y%m%d)
 LOG_FILE="${LOG_DIR}/source_data_${TODAY}.log"
 LOCK_FILE="/tmp/sftp_cron_sync.lock"
 
@@ -36,34 +37,42 @@ fi
 log_msg "=================== 同步作業開始 ==================="
 
 # --------------------------------------------------
-# 修正與新增：每天午夜 (00:00~00:59) 自動將昨天舊檔歸檔至日期資料夾
+# 自動歸檔與根目錄清理機制：
+# 掃描根目錄下所有「非今天」的舊檔案，依檔名日期搬移至對應資料夾
+# 註：mv 搬移後即可確保根目錄舊檔完全清除，不殘留歷史檔案
 # --------------------------------------------------
-CURRENT_HOUR=$(date +%H)
-if true; then
-  YESTERDAY=$(date -d "yesterday" +%Y%m%d)
-  log_msg "[歸檔機制] 偵測到目前為午夜時段，啟動昨天 (${YESTERDAY}) 檔案歸檔程序..."
+log_msg "[歸檔機制] 啟動歷史檔案歸檔與根目錄清理程序..."
+
+for FOLDER in "${FOLDERS[@]}"
+do
+  # 搜尋根目錄下 (-maxdepth 1) 所有不是今天檔名 (*_${TODAY}*) 的舊檔案
+  FILES_TO_MOVE=$(find "${LOCAL_BASE_PATH}/${FOLDER}" -maxdepth 1 -type f \( -name "*.json" -o -name "*.cap" \) ! -name "*_${TODAY}*" 2>/dev/null)
   
-  for FOLDER in "${FOLDERS[@]}"
-  do
-    TARGET_DIR="${LOCAL_BASE_PATH}/${FOLDER}/${YESTERDAY}"
-    
-    # 檢查該資料夾下是否有昨天的檔案，有的話才處理
-    # 這裡使用 find 尋找檔名包含昨天日期，且「不在」剛建立的日期資料夾內的檔案
-    FILES_TO_MOVE=$(find "${LOCAL_BASE_PATH}/${FOLDER}" -maxdepth 1 -type f \( -name "*_${YESTERDAY}*.json" -o -name "*_${YESTERDAY}*.cap" \))
-    
-    if [ -n "$FILES_TO_MOVE" ]; then
-      mkdir -p "$TARGET_DIR"
-      log_msg "[歸檔機制] 建立歸檔資料夾: ${TARGET_DIR}"
+  if [ -n "$FILES_TO_MOVE" ]; then
+    echo "$FILES_TO_MOVE" | while read -r file; do
+      [ -f "$file" ] || continue
+      file_name=$(basename "$file")
       
-      echo "$FILES_TO_MOVE" | while read -r file; do
-        mv "$file" "$TARGET_DIR/"
-        log_msg "[歸檔機制] 已搬移: $(basename "$file") -> ${YESTERDAY}/"
-      done
-    fi
-  done
-  log_msg "[歸檔機制] 昨天舊檔案歸檔完畢。"
-  log_msg "----------------------------------------------------"
-fi
+      # 自動從檔名提取 8 位數日期 (YYYYMMDD)，若無則預設用昨天日期
+      file_date=$(echo "$file_name" | grep -oE '[0-9]{8}' | head -n 1)
+      if [ -z "$file_date" ]; then
+        file_date="$YESTERDAY"
+      fi
+      
+      target_dir="${LOCAL_BASE_PATH}/${FOLDER}/${file_date}"
+      mkdir -p "$target_dir"
+      
+      # 使用 mv 將檔案搬移進日期資料夾（從根目錄移除）
+      mv "$file" "$target_dir/"
+      log_msg "[歸檔機制] 已將舊檔搬移離根目錄: ${file_name} -> ${file_date}/"
+    done
+  fi
+
+  # (選用) 如需自動清理超過 30 天的歷史歸檔資料夾，可取消下一行註解
+  # find "${LOCAL_BASE_PATH}/${FOLDER}" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+done
+log_msg "[歸檔機制] 歷史舊檔案歸檔與清理完畢。"
+log_msg "----------------------------------------------------"
 
 # --------------------------------------------------
 # SFTP 撈取最新檔案
@@ -84,9 +93,15 @@ do
   FILE_NAME=$(basename "$REMOTE_LATEST_FILE")
   log_msg "【資料夾: ${FOLDER}】偵測到遠端最新檔案為: ${FILE_NAME}"
 
-  # 修改判斷：本機根目錄或歸檔目錄有相同檔案，都視為已下載
-  if [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${FILE_NAME}" ] || [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${YESTERDAY}/${FILE_NAME}" ]; then
-    log_msg "【資料夾: ${FOLDER}】本機（或歸檔區）已存在相同檔案 [${FILE_NAME}]。略過不下載。"
+  # 從遠端檔名自動解析日期
+  REMOTE_FILE_DATE=$(echo "$FILE_NAME" | grep -oE '[0-9]{8}' | head -n 1)
+  if [ -z "$REMOTE_FILE_DATE" ]; then
+    REMOTE_FILE_DATE="$TODAY"
+  fi
+
+  # 判斷：本機根目錄或對應歸檔目錄中已有相同檔案，則略過不重複下載
+  if [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${FILE_NAME}" ] || [ -f "${LOCAL_BASE_PATH}/${FOLDER}/${REMOTE_FILE_DATE}/${FILE_NAME}" ]; then
+    log_msg "【資料夾: ${FOLDER}】本機（或歸檔區 ${REMOTE_FILE_DATE}/）已存在相同檔案 [${FILE_NAME}]。略過不下載。"
   else
     log_msg "【資料夾: ${FOLDER}】本機無此檔案，開始透過 SFTP 下載..."
     
@@ -105,5 +120,3 @@ EOF
 done
 
 log_msg "=================== 同步作業結束 ==================="
-
-
